@@ -1,4 +1,5 @@
 **/*.o
 a.out
+main
 .zig-cache/
 zig-out/

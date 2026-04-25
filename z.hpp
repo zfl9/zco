@@ -16,13 +16,14 @@ struct z_Task {
 // z_task struct fields (`z_call` is available)
 // @param ... `SubTask a; SubTask b; ...`
 #define z_task_fields(...) \
+    union z_SubTaskU; \
     void (*_z_subtask_deinit)(z_SubTaskU *u) = nullptr; \
     union z_SubTaskU { __VA_ARGS__; z_SubTaskU(){} ~z_SubTaskU(){} } _z_subtask_u; \
-    uint32_t _z_resume_point = 0
+    int32_t _z_resume_point = 0
 
 // z_task (leaf) struct fields (`z_call` is not available)
 #define z_task_leaf_fields() \
-    uint32_t _z_resume_point = 0
+    int32_t _z_resume_point = 0
 
 // implement the `z_Task::resume` method
 #define z_impl_resume() \
@@ -46,8 +47,8 @@ struct z_Task {
 #define Z_CONCAT_(a, b) a##b
 #define Z_CONCAT(a, b) Z_CONCAT_(a, b)
 #define Z_LABEL Z_CONCAT(z_label_, __LINE__)
-#define z_label_addr ((uint32_t)(&&Z_LABEL - &&z_label_base))
-#define z_resume_point (&&z_label_base + this->_z_resume_point)
+#define z_label_addr ((int32_t)((intptr_t)&&Z_LABEL - (intptr_t)&&z_label_base))
+#define z_resume_point ((void *)((intptr_t)&&z_label_base + (intptr_t)this->_z_resume_point))
 
 // place this at the beginning of the body of `z_function`
 #define z_begin() \
@@ -60,14 +61,16 @@ struct z_Task {
     Z_LABEL: ; \
 } while (0)
 
-#define z_return(val) do { \
+#define z_return(val, ...) do { \
     if (_z_result) *_z_result = std::move(val); \
     this->_z_resume_point = 0; \
+    __VA_ARGS__; \
     return true; \
 } while (0)
 
-#define z_return_void() do { \
+#define z_ret(...) do { \
     this->_z_resume_point = 0; \
+    __VA_ARGS__; \
     return true; \
 } while (0)
 

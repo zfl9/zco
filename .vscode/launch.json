@@ -5,10 +5,10 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Launch",
+            "name": "debug main",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceRoot}/<your program>",
+            "program": "${workspaceRoot}/main",
             "args": [],
             "cwd": "${workspaceRoot}"
         }
