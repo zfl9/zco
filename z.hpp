@@ -8,6 +8,10 @@
 struct z_Task {
     // no atomic operations required
     uint32_t ref_count = 1;
+    // cancellation signal received
+    bool canceled = false;
+    // the task has been terminated
+    bool terminated = false;
 
     z_Task *ref() noexcept {
         ++ref_count;
@@ -24,6 +28,9 @@ struct z_Task {
 
     // @return true(DONE), false(YIELD)
     virtual bool resume() noexcept = 0;
+
+    // dispose the task, leaving only harmless zombies
+    virtual void terminate() noexcept = 0;
 };
 
 // task fields (`z_call` is available)
@@ -39,15 +46,18 @@ struct z_Task {
     int32_t _z_resume_point = 0
 
 // implement the `z_Task::resume` method
-#define z_impl_resume() \
+// implement the `z_Task::~T() + terminate()` method
+#define z_impl_deinit(T) \
     virtual bool resume() noexcept override { \
         /* resume z_function(result, z_task) */ \
         return this->operator()(nullptr, this); \
-    }
-
-// implement the `z_Task::~T()` method
-#define z_define_deinit(T) \
-    ~T() noexcept { \
+    } \
+    virtual ~T() noexcept override { \
+        this->terminate(); \
+    } \
+    virtual void terminate() noexcept override { \
+        if (this->terminated) return; \
+        this->terminated = true; \
         /* deinit subtask */ \
         if (this->_z_subtask_deinit) { \
             this->_z_subtask_deinit(&this->_z_subtask_u); \
@@ -72,10 +82,15 @@ struct z_Task {
     goto *z_resume_point; \
     z_label_base:
 
+#define z_check_cancel() do { \
+    if (_z_task->canceled) [[unlikely]] z_ret(); \
+} while (0)
+
 #define z_yield() do { \
     this->_z_resume_point = z_label_addr; \
     return false; \
-    Z_LABEL: ; \
+    Z_LABEL: \
+    z_check_cancel(); \
 } while (0)
 
 #define z_return(result, final_logic...) do { \
@@ -104,12 +119,24 @@ Z_LABEL: \
     } \
     this->_z_subtask_u.taskname.~z_SubTask(); \
     this->_z_subtask_deinit = nullptr; \
+    z_check_cancel(); \
 } while (0)
 
 // do not touch the `task` object after resume
 #define z_resume(task) do { \
     z_Task *__z_resume_task = static_cast<z_Task *>(task); \
-    if (__z_resume_task->resume()) __z_resume_task->unref(); \
+    if (__z_resume_task->terminated) [[unlikely]] break; \
+    if (__z_resume_task->resume()) { \
+        __z_resume_task->terminate(); \
+        __z_resume_task->unref(); \
+    } \
+} while (0)
+
+#define z_cancel(task) do { \
+    z_Task *__z_cancel_task = static_cast<z_Task *>(task); \
+    if (__z_cancel_task->terminated || __z_cancel_task->canceled) [[unlikely]] break; \
+    __z_cancel_task->canceled = true; \
+    z_resume(__z_cancel_task); \
 } while (0)
 
 #define z_launch(T, ctor_args...) do { \

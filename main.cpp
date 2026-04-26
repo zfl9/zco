@@ -14,9 +14,7 @@ struct tcp_echo final : z_Task {
     char buf[128];
     ssize_t len;
 
-    z_impl_resume();
-
-    z_define_deinit(tcp_echo) {
+    z_impl_deinit(tcp_echo) {
         z_ev::io_stop(&io);
         close(io.fd);
     }
@@ -53,9 +51,7 @@ struct tcp_server final : z_Task {
     ev_io io;
     int port;
 
-    z_impl_resume();
-
-    z_define_deinit(tcp_server) {
+    z_impl_deinit(tcp_server) {
         z_ev::io_stop(&io);
         close(io.fd);
     }
