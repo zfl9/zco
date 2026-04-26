@@ -45,6 +45,7 @@ struct z_Task {
 #define z_leaf_fields() \
     int32_t _z_resume_point = 0
 
+// for `struct RootTask : z_Task { ... }`
 // implement the `z_Task::resume` method
 // implement the `z_Task::~T() + terminate()` method
 #define z_impl_deinit(T) \
@@ -58,15 +59,29 @@ struct z_Task {
     virtual void terminate() noexcept override { \
         if (this->terminated) return; \
         this->terminated = true; \
-        /* deinit subtask */ \
-        if (this->_z_subtask_deinit) { \
-            this->_z_subtask_deinit(&this->_z_subtask_u); \
-            this->_z_subtask_deinit = nullptr; \
-        } \
-        /* deinit my task */ \
+        z_subtask_deinit(this); \
         this->deinit(); \
     } \
     void deinit() noexcept
+
+// for `struct LogicTask { ... }`
+#define z_def_deinit(T) \
+    ~T() noexcept { \
+        z_subtask_deinit(this); \
+        this->deinit(); \
+    } \
+    void deinit() noexcept
+
+// internal helper method
+template <typename T>
+inline void z_subtask_deinit(T *task) {
+    if constexpr (requires { task->_z_subtask_deinit; }) {
+        if (task->_z_subtask_deinit) {
+            task->_z_subtask_deinit(&task->_z_subtask_u);
+            task->_z_subtask_deinit = nullptr;
+        }
+    }
+}
 
 // task's coroutine function
 #define z_function(Result, param_decls...) bool operator()(Result *_z_result, z_Task *_z_task, ##param_decls) noexcept
@@ -77,14 +92,13 @@ struct z_Task {
 #define z_label_addr ((int32_t)((intptr_t)&&Z_LABEL - (intptr_t)&&z_label_base))
 #define z_resume_point ((void *)((intptr_t)&&z_label_base + (intptr_t)this->_z_resume_point))
 
+#define z_check_cancel() do { if (_z_task->canceled) [[unlikely]] z_ret(); } while (0)
+
 // place this at the beginning of the body of `z_function`
 #define z_begin() \
     goto *z_resume_point; \
-    z_label_base:
-
-#define z_check_cancel() do { \
-    if (_z_task->canceled) [[unlikely]] z_ret(); \
-} while (0)
+    z_label_base: \
+    z_check_cancel() \
 
 #define z_yield() do { \
     this->_z_resume_point = z_label_addr; \
