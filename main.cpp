@@ -8,21 +8,21 @@
 #include "z.hpp"
 #include "z_ev.hpp"
 
-struct tcp_echo: z_Task {
-    z_task_fields(z_ev_read read; z_ev_write write);
+struct tcp_echo final : z_Task {
+    z_fields(z_ev_read read; z_ev_write write);
     ev_io io;
     char buf[128];
     ssize_t len;
 
-    z_impl_resume()
+    z_impl_resume();
+
+    z_define_deinit(tcp_echo) {
+        z_ev::io_stop(&io);
+        close(io.fd);
+    }
 
     tcp_echo(int fd) {
         ev_io_init(&io, nullptr, fd, 0);
-    }
-
-    ~tcp_echo() {
-        z_ev::io_stop(&io);
-        close(io.fd);
     }
 
     z_function(void) {
@@ -44,23 +44,24 @@ struct tcp_echo: z_Task {
             z_call(write, nullptr, &io, &buf, len);
         }
 
-        // auto delete
-        z_ret(delete this);
+        z_ret();
     }
 };
 
-struct tcp_server : z_Task {
-    z_task_fields(z_ev_accept accept);
+struct tcp_server final : z_Task {
+    z_fields(z_ev_accept accept);
     ev_io io;
     int port;
 
     z_impl_resume();
 
-    tcp_server(int port) : port(port) {}
-
-    ~tcp_server() {
+    z_define_deinit(tcp_server) {
         z_ev::io_stop(&io);
         close(io.fd);
+    }
+
+    tcp_server(int port) : port(port) {
+        ev_io_init(&io, nullptr, -1, 0);
     }
 
     bool init() {
@@ -95,10 +96,9 @@ struct tcp_server : z_Task {
             z_call(accept, &cfd, &io);
             if (cfd < 0) {
                 perror("accept err");
-                z_ret();
+                break;
             }
-            auto task = new tcp_echo(cfd);
-            task->resume();
+            z_launch(tcp_echo, cfd);
         }
 
         z_ret();
@@ -108,8 +108,9 @@ struct tcp_server : z_Task {
 int main() {
     z_ev::init();
 
-    tcp_server server{8888};
-    server.resume();
+    z_launch(tcp_server, 8888);
+    z_launch(tcp_server, 8888); // fail-fast
+    z_launch(tcp_server, 8889);
 
     z_ev::run();
 

@@ -4,45 +4,62 @@
 #include <utility>
 #include <new>
 
-// base class：Z-Task (stackless)
+// task interface (stackless coroutine)
 struct z_Task {
-    virtual ~z_Task() = default;
+    // no atomic operations required
+    uint32_t ref_count = 1;
 
-    // resume task
-    // @return true(DONE), false(SUSPENDED)
-    virtual bool resume() = 0;
+    z_Task *ref() noexcept {
+        ++ref_count;
+        return this;
+    }
+
+    void unref() noexcept {
+        if (--ref_count == 0)
+            delete this;
+    }
+
+    // all task struct must have a destructor
+    virtual ~z_Task() noexcept = default;
+
+    // @return true(DONE), false(YIELD)
+    virtual bool resume() noexcept = 0;
 };
 
-// z_task struct fields (`z_call` is available)
-// @param ... `SubTask a; SubTask b; ...`
-#define z_task_fields(...) \
-    union z_SubTaskU; \
+// task fields (`z_call` is available)
+// @param subtask_decls: SubTask a; SubTask b; ...
+#define z_fields(subtask_decls...) \
+    union z_SubTaskU; /* forward decl */ \
     void (*_z_subtask_deinit)(z_SubTaskU *u) = nullptr; \
-    union z_SubTaskU { __VA_ARGS__; z_SubTaskU(){} ~z_SubTaskU(){} } _z_subtask_u; \
+    union z_SubTaskU { subtask_decls; z_SubTaskU(){} ~z_SubTaskU(){} } _z_subtask_u; \
     int32_t _z_resume_point = 0
 
-// z_task (leaf) struct fields (`z_call` is not available)
-#define z_task_leaf_fields() \
+// leaf task fields (`z_call` is not available)
+#define z_leaf_fields() \
     int32_t _z_resume_point = 0
 
 // implement the `z_Task::resume` method
 #define z_impl_resume() \
-    virtual bool resume() override { \
+    virtual bool resume() noexcept override { \
         /* resume z_function(result, z_task) */ \
         return this->operator()(nullptr, this); \
     }
 
-// deinit the active `subtask` (if present).
-// must be placed at the beginning of `~z_task()`
-#define z_subtask_deinit() do { \
-    if (this->_z_subtask_deinit) { \
-        this->_z_subtask_deinit(&this->_z_subtask_u); \
-        this->_z_subtask_deinit = nullptr; \
+// implement the `z_Task::~T()` method
+#define z_define_deinit(T) \
+    ~T() noexcept { \
+        /* deinit subtask */ \
+        if (this->_z_subtask_deinit) { \
+            this->_z_subtask_deinit(&this->_z_subtask_u); \
+            this->_z_subtask_deinit = nullptr; \
+        } \
+        /* deinit my task */ \
+        this->deinit(); \
     } \
-} while (0)
+    void deinit() noexcept
 
-// definition of the z_task coroutine function
-#define z_function(Result, ...) bool operator()(Result *_z_result, z_Task *_z_task, ##__VA_ARGS__)
+// task's coroutine function
+#define z_function(Result, param_decls...) bool operator()(Result *_z_result, z_Task *_z_task, ##param_decls) noexcept
 
 #define Z_CONCAT_(a, b) a##b
 #define Z_CONCAT(a, b) Z_CONCAT_(a, b)
@@ -55,36 +72,47 @@ struct z_Task {
     goto *z_resume_point; \
     z_label_base:
 
-#define z_suspend() do { \
+#define z_yield() do { \
     this->_z_resume_point = z_label_addr; \
     return false; \
     Z_LABEL: ; \
 } while (0)
 
-#define z_return(val, ...) do { \
-    if (_z_result) *_z_result = std::move(val); \
-    this->_z_resume_point = 0; \
-    __VA_ARGS__; \
+#define z_return(result, final_logic...) do { \
+    if (_z_result) *_z_result = std::move(result); \
+    this->_z_resume_point = INT32_MIN; \
+    final_logic; \
     return true; \
 } while (0)
 
-#define z_ret(...) do { \
-    this->_z_resume_point = 0; \
-    __VA_ARGS__; \
+#define z_ret(final_logic...) do { \
+    this->_z_resume_point = INT32_MIN; \
+    final_logic; \
     return true; \
 } while (0)
 
-// @param result `Result *`, use nullptr to ignore
-// @param ... the arguments passed to z_function (pinned)
-#define z_call(taskname, result, ...) do { \
+// @param result: `Result *`, use nullptr to ignore
+// @param args: the arguments passed to z_function (pinned)
+#define z_call(taskname, result, args...) do { \
     using z_SubTask = std::remove_reference_t<decltype(this->_z_subtask_u.taskname)>; \
     new (&this->_z_subtask_u.taskname) z_SubTask(); \
     this->_z_subtask_deinit = [] (z_SubTaskU *u) { u->taskname.~z_SubTask(); }; \
 Z_LABEL: \
-    if (!this->_z_subtask_u.taskname((result), _z_task, ##__VA_ARGS__)) { \
+    if (!this->_z_subtask_u.taskname((result), _z_task, ##args)) { \
         this->_z_resume_point = z_label_addr; \
         return false; \
     } \
     this->_z_subtask_u.taskname.~z_SubTask(); \
     this->_z_subtask_deinit = nullptr; \
+} while (0)
+
+// do not touch the `task` object after resume
+#define z_resume(task) do { \
+    z_Task *__z_resume_task = static_cast<z_Task *>(task); \
+    if (__z_resume_task->resume()) __z_resume_task->unref(); \
+} while (0)
+
+#define z_launch(T, ctor_args...) do { \
+    z_Task *__z_launch_task = new (std::nothrow) T(ctor_args); \
+    if (__z_launch_task) z_resume(__z_launch_task); \
 } while (0)

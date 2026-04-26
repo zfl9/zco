@@ -21,8 +21,7 @@ namespace z_ev {
 
     inline void io_start(ev_io *io, int events, z_Task *task) {
         io_callback_t callback = [] (ev_loop *, ev_io *io, int) {
-            z_Task *task = (z_Task *)io->data;
-            task->resume();
+            z_resume(io->data);
         };
 
         ev_io_stop(evloop, io);
@@ -40,11 +39,13 @@ namespace z_ev {
 }
 
 struct z_ev_read {
-    z_task_leaf_fields();
+    z_leaf_fields();
     size_t n_read = 0;
 
     z_function(ssize_t, ev_io *io, void *buf, size_t len, size_t at_least = 0) {
         z_begin();
+
+        if (at_least > len) at_least = len;
 
         while (n_read == 0 || n_read < at_least) {
             ssize_t res = read(io->fd, (char *)buf + n_read, len - n_read);
@@ -54,7 +55,7 @@ struct z_ev_read {
                 break;
             } else if (errno == EAGAIN) {
                 z_ev::io_start(io, EV_READ, _z_task);
-                z_suspend();
+                z_yield();
                 z_ev::io_stop(io);
             } else {
                 z_return(res);
@@ -66,7 +67,7 @@ struct z_ev_read {
 };
 
 struct z_ev_write {
-    z_task_leaf_fields();
+    z_leaf_fields();
     size_t n_write = 0;
 
     z_function(ssize_t, ev_io *io, const void *buf, size_t len) {
@@ -78,7 +79,7 @@ struct z_ev_write {
                 n_write += res;
             } else if (errno == EAGAIN) {
                 z_ev::io_start(io, EV_WRITE, _z_task);
-                z_suspend();
+                z_yield();
                 z_ev::io_stop(io);
             } else {
                 z_return(res);
@@ -90,7 +91,7 @@ struct z_ev_write {
 };
 
 struct z_ev_accept {
-    z_task_leaf_fields();
+    z_leaf_fields();
 
     z_function(int, ev_io *io, struct sockaddr *addr = nullptr, socklen_t *addrlen = nullptr, int flags = SOCK_CLOEXEC|SOCK_NONBLOCK) {
         z_begin();
@@ -101,7 +102,7 @@ struct z_ev_accept {
                 z_return(cfd);
             } else {
                 z_ev::io_start(io, EV_READ, _z_task);
-                z_suspend();
+                z_yield();
                 z_ev::io_stop(io);
             }
         }
@@ -109,16 +110,16 @@ struct z_ev_accept {
 };
 
 struct z_ev_connect {
-    z_task_leaf_fields();
+    z_leaf_fields();
 
     z_function(int, ev_io *io, const struct sockaddr *addr, socklen_t addrlen) {
         z_begin();
 
-        ssize_t res = connect(io->fd, addr, addrlen);
+        int res = connect(io->fd, addr, addrlen);
         if (res == 0 || errno != EINPROGRESS) return res;
 
         z_ev::io_start(io, EV_WRITE, _z_task);
-        z_suspend();
+        z_yield();
         z_ev::io_stop(io);
 
         // check errno
