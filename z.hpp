@@ -174,20 +174,12 @@ Z_LABEL: \
     z_resume(__z_cancel_task); \
 } while (0)
 
-// create and start task (fire and forget)
-#define z_launch(T, ctor_args...) do { \
-    z_Task *__z_launch_task = new (std::nothrow) T(ctor_args); \
-    if (__z_launch_task) [[likely]] { \
-        __z_launch_task->unref(); \
-        z_resume(__z_launch_task); \
-    } \
-} while (0)
-
 // caller should ultimately call `task->unref()`
 #define z_spawn(T, ctor_args...) ({ \
     z_Task *__z_spawn_task = new (std::nothrow) T(ctor_args); \
-    if (__z_spawn_task) [[likely]] { \
-        z_resume(__z_spawn_task); \
-    } \
-    __z_spawn_task; \
+    if (__z_spawn_task) [[likely]] z_resume(__z_spawn_task); \
+    z_TaskRef{__z_spawn_task}; \
 })
+
+// create and start task (fire and forget)
+#define z_launch(T, ctor_args...) ((void)z_spawn(T, ctor_args))
