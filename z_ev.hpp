@@ -21,7 +21,8 @@ namespace z_ev {
 
     inline void io_start(ev_io *io, int events, z_Task *task) {
         io_callback_t callback = [] (ev_loop *, ev_io *io, int) {
-            z_resume(io->data);
+            auto *task = static_cast<z_Task *>(io->data);
+            task->resume();
         };
 
         ev_io_stop(evloop, io);

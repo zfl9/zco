@@ -6,13 +6,16 @@
 
 // task interface (stackless coroutine)
 struct z_Task {
+private:
     // execution flow (ref), creator (ref)
     uint32_t ref_count = 2;
     // cancellation signal received
     bool canceled = false;
+protected:
     // the task has been terminated
     bool terminated = false;
 
+public:
     z_Task *ref() noexcept {
         ++ref_count;
         return this;
@@ -23,11 +26,32 @@ struct z_Task {
             delete this;
     }
 
+    // @return true(DONE), false(YIELD)
+    bool resume() noexcept {
+        if (terminated) [[unlikely]] return true;
+        if (do_resume()) {
+            terminate();
+            unref();
+            return true;
+        }
+        return false;
+    }
+
+    // cancellation is synchronous and RAII-safe
+    void cancel() noexcept {
+        if (terminated || canceled) [[unlikely]] return;
+        canceled = true;
+        resume();
+    }
+
+    bool is_canceled() const noexcept { return canceled; }
+
+protected:
     // all task struct must have a destructor
     virtual ~z_Task() noexcept = default;
 
     // @return true(DONE), false(YIELD)
-    virtual bool resume() noexcept = 0;
+    virtual bool do_resume() noexcept = 0;
 
     // dispose the task, leaving only harmless zombies
     virtual void terminate() noexcept = 0;
@@ -66,11 +90,11 @@ struct z_TaskRef {
     int32_t _z_resume_point = 0
 
 // for `struct RootTask : z_Task { ... }`
-// implement the `z_Task::resume` method
+// implement the `z_Task::do_resume` method
 // implement the `z_Task::~T() + terminate()` method
 #define z_impl_deinit(T) \
-    virtual bool resume() noexcept override { \
-        /* resume z_function(result, z_task) */ \
+    virtual bool do_resume() noexcept override { \
+        /* recall z_function(result, z_task) */ \
         return this->operator()(nullptr, this); \
     } \
     virtual ~T() noexcept override { \
@@ -112,7 +136,10 @@ inline void z_subtask_deinit(T *task) {
 #define z_label_addr ((int32_t)((intptr_t)&&Z_LABEL - (intptr_t)&&z_label_base))
 #define z_resume_point ((void *)((intptr_t)&&z_label_base + (intptr_t)this->_z_resume_point))
 
-#define z_check_cancel() do { if (_z_task->canceled) [[unlikely]] z_ret(); } while (0)
+#define z_check_cancel() do { \
+    if (_z_task->is_canceled()) [[unlikely]] \
+        z_ret(); \
+} while (0)
 
 // place this at the beginning of the body of `z_function`
 #define z_begin() \
@@ -155,27 +182,11 @@ Z_LABEL: \
     z_check_cancel(); \
 } while (0)
 
-#define z_resume(task) do { \
-    z_Task *__z_resume_task = static_cast<z_Task *>(task); \
-    if (__z_resume_task->terminated) [[unlikely]] break; \
-    if (__z_resume_task->resume()) { \
-        __z_resume_task->terminate(); \
-        __z_resume_task->unref(); \
-    } \
-} while (0)
-
-// cancellation is synchronous and RAII-safe
-#define z_cancel(task) do { \
-    z_Task *__z_cancel_task = static_cast<z_Task *>(task); \
-    if (__z_cancel_task->terminated || __z_cancel_task->canceled) [[unlikely]] break; \
-    __z_cancel_task->canceled = true; \
-    z_resume(__z_cancel_task); \
-} while (0)
-
 // the caller owns a reference (z_TaskRef)
 #define z_spawn(T, ctor_args...) ({ \
     z_Task *__z_spawn_task = new (std::nothrow) T(ctor_args); \
-    if (__z_spawn_task) [[likely]] z_resume(__z_spawn_task); \
+    if (__z_spawn_task) [[likely]] \
+        __z_spawn_task->resume(); \
     z_TaskRef{__z_spawn_task}; \
 })
 
