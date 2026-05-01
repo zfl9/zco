@@ -47,13 +47,13 @@ public:
     bool is_canceled() const noexcept { return canceled; }
 
 protected:
-    // all task struct must have a destructor
+    // task must have a destructor
     virtual ~z_Task() noexcept = default;
 
     // @return true(DONE), false(YIELD)
     virtual bool do_resume() noexcept = 0;
 
-    // dispose the task, leaving only harmless zombies
+    // dispose task, leaving only harmless zombies
     virtual void terminate() noexcept = 0;
 };
 
@@ -118,7 +118,7 @@ struct z_TaskRef {
 
 // internal helper method
 template <typename T>
-inline void z_subtask_deinit(T *task) {
+inline void z_subtask_deinit(T *task) noexcept {
     if constexpr (requires { task->_z_subtask_deinit; }) {
         if (task->_z_subtask_deinit) {
             task->_z_subtask_deinit(&task->_z_subtask_u);
