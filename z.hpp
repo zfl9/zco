@@ -128,17 +128,15 @@ inline void z_subtask_deinit(T *task) {
     z_check_cancel(); \
 } while (0)
 
-#define z_return(result, final_logic...) do { \
-    if (_z_result) *_z_result = std::move(result); \
-    this->_z_resume_point = INT32_MIN; \
+#define z_ret(final_logic...) do { \
+    this->_z_resume_point = INT32_MIN; /* fail-fast */ \
     final_logic; \
     return true; \
 } while (0)
 
-#define z_ret(final_logic...) do { \
-    this->_z_resume_point = INT32_MIN; \
-    final_logic; \
-    return true; \
+#define z_return(result, final_logic...) do { \
+    if (_z_result) *_z_result = std::move(result); \
+    z_ret(final_logic); \
 } while (0)
 
 // @param result: `Result *`, use nullptr to ignore
@@ -174,7 +172,7 @@ Z_LABEL: \
     z_resume(__z_cancel_task); \
 } while (0)
 
-// caller should ultimately call `task->unref()`
+// the caller owns a reference (z_TaskRef)
 #define z_spawn(T, ctor_args...) ({ \
     z_Task *__z_spawn_task = new (std::nothrow) T(ctor_args); \
     if (__z_spawn_task) [[likely]] z_resume(__z_spawn_task); \
