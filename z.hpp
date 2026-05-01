@@ -58,8 +58,10 @@ protected:
 };
 
 struct z_TaskRef {
+private:
     z_Task *task;
 
+public:
     explicit z_TaskRef(z_Task *task) noexcept : task{task} {}
     ~z_TaskRef() noexcept { if (task) task->unref(); }
 
