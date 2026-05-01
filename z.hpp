@@ -6,8 +6,8 @@
 
 // task interface (stackless coroutine)
 struct z_Task {
-    // no atomic operations required
-    uint32_t ref_count = 1;
+    // execution flow (ref), creator (ref)
+    uint32_t ref_count = 2;
     // cancellation signal received
     bool canceled = false;
     // the task has been terminated
@@ -100,10 +100,11 @@ inline void z_subtask_deinit(T *task) {
     z_label_base: \
     z_check_cancel() \
 
-#define z_yield() do { \
+#define z_yield(resume_logic...) do { \
     this->_z_resume_point = z_label_addr; \
     return false; \
     Z_LABEL: \
+    resume_logic; \
     z_check_cancel(); \
 } while (0)
 
@@ -136,7 +137,6 @@ Z_LABEL: \
     z_check_cancel(); \
 } while (0)
 
-// do not touch the `task` object after resume
 #define z_resume(task) do { \
     z_Task *__z_resume_task = static_cast<z_Task *>(task); \
     if (__z_resume_task->terminated) [[unlikely]] break; \
@@ -146,6 +146,7 @@ Z_LABEL: \
     } \
 } while (0)
 
+// cancellation is synchronous and RAII-safe
 #define z_cancel(task) do { \
     z_Task *__z_cancel_task = static_cast<z_Task *>(task); \
     if (__z_cancel_task->terminated || __z_cancel_task->canceled) [[unlikely]] break; \
@@ -153,7 +154,20 @@ Z_LABEL: \
     z_resume(__z_cancel_task); \
 } while (0)
 
+// create and start task (fire and forget)
 #define z_launch(T, ctor_args...) do { \
     z_Task *__z_launch_task = new (std::nothrow) T(ctor_args); \
-    if (__z_launch_task) z_resume(__z_launch_task); \
+    if (__z_launch_task) [[likely]] { \
+        __z_launch_task->unref(); \
+        z_resume(__z_launch_task); \
+    } \
 } while (0)
+
+// caller should ultimately call `task->unref()`
+#define z_spawn(T, ctor_args...) ({ \
+    z_Task *__z_spawn_task = new (std::nothrow) T(ctor_args); \
+    if (__z_spawn_task) [[likely]] { \
+        z_resume(__z_spawn_task); \
+    } \
+    __z_spawn_task; \
+})
