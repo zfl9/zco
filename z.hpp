@@ -33,6 +33,26 @@ struct z_Task {
     virtual void terminate() noexcept = 0;
 };
 
+struct z_TaskRef {
+    z_Task *task;
+
+    explicit z_TaskRef(z_Task *task) noexcept : task{task} {}
+    ~z_TaskRef() noexcept { if (task) task->unref(); }
+
+    z_TaskRef(z_TaskRef &&other) noexcept : task{std::exchange(other.task, nullptr)} {}
+    z_TaskRef(const z_TaskRef &) = delete; // use `share()` instead
+
+    z_TaskRef &operator=(z_TaskRef &&) = delete;
+    z_TaskRef &operator=(const z_TaskRef &) = delete;
+
+    z_Task *operator->() const noexcept { return task; }
+    z_Task &operator*() const noexcept { return *task; }
+    explicit operator bool() const noexcept { return task != nullptr; }
+
+    [[nodiscard]] z_TaskRef share() const noexcept { return z_TaskRef{ task->ref() }; } // ref++
+    [[nodiscard]] z_Task *raw() const noexcept { return task; } // raw pointer
+};
+
 // task fields (`z_call` is available)
 // @param subtask_decls: SubTask a; SubTask b; ...
 #define z_fields(subtask_decls...) \
