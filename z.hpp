@@ -132,6 +132,9 @@ inline void z_subtask_deinit(T *task) noexcept {
 // task's coroutine function
 #define z_function(Result, param_decls...) bool operator()(Result *_z_result, z_Task *_z_task, ##param_decls) noexcept
 
+// currently running `z_Task *`
+#define z_current() (_z_task)
+
 #define Z_CONCAT_(a, b) a##b
 #define Z_CONCAT(a, b) Z_CONCAT_(a, b)
 #define Z_LABEL Z_CONCAT(z_label_, __LINE__)
@@ -139,7 +142,7 @@ inline void z_subtask_deinit(T *task) noexcept {
 #define z_resume_point ((void *)((intptr_t)&&z_label_base + (intptr_t)this->_z_resume_point))
 
 #define z_check_cancel() do { \
-    if (_z_task->is_canceled()) [[unlikely]] \
+    if (z_current()->is_canceled()) [[unlikely]] \
         z_ret(); \
 } while (0)
 
@@ -175,7 +178,7 @@ inline void z_subtask_deinit(T *task) noexcept {
     new (&this->_z_subtask_u.taskname) z_SubTask(); \
     this->_z_subtask_deinit = [] (z_SubTaskU *u) { u->taskname.~z_SubTask(); }; \
 Z_LABEL: \
-    if (!this->_z_subtask_u.taskname((result), _z_task, ##args)) { \
+    if (!this->_z_subtask_u.taskname((result), z_current(), ##args)) { \
         this->_z_resume_point = z_label_addr; \
         return false; \
     } \

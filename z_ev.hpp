@@ -57,7 +57,7 @@ struct z_ev_read {
             } else if (res == 0) {
                 break;
             } else if (errno == EAGAIN) {
-                z_ev::io_start(io, EV_READ, _z_task);
+                z_ev::io_start(io, EV_READ, z_current());
                 z_yield(z_ev::io_stop(io));
             } else {
                 z_return(res);
@@ -82,7 +82,7 @@ struct z_ev_write {
             if (res >= 0) {
                 n_write += res;
             } else if (errno == EAGAIN) {
-                z_ev::io_start(io, EV_WRITE, _z_task);
+                z_ev::io_start(io, EV_WRITE, z_current());
                 z_yield(z_ev::io_stop(io));
             } else {
                 z_return(res);
@@ -106,7 +106,7 @@ struct z_ev_accept {
             if (cfd >= 0 || errno != EAGAIN) {
                 z_return(cfd);
             } else {
-                z_ev::io_start(io, EV_READ, _z_task);
+                z_ev::io_start(io, EV_READ, z_current());
                 z_yield(z_ev::io_stop(io));
             }
         }
@@ -124,7 +124,7 @@ struct z_ev_connect {
         int res = connect(io->fd, addr, addrlen);
         if (res == 0 || errno != EINPROGRESS) return res;
 
-        z_ev::io_start(io, EV_WRITE, _z_task);
+        z_ev::io_start(io, EV_WRITE, z_current());
         z_yield(z_ev::io_stop(io));
 
         // check errno
