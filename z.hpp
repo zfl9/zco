@@ -83,8 +83,12 @@ public:
 // @param subtask_decls: SubTask a; SubTask b; ...
 #define z_fields(subtask_decls...) \
     union z_SubTaskU; /* forward decl */ \
-    void (*_z_subtask_deinit)(z_SubTaskU *u) = nullptr; \
-    union z_SubTaskU { subtask_decls; z_SubTaskU(){} ~z_SubTaskU(){} } _z_subtask_u; \
+    void (*_z_subtask_deinit)(z_SubTaskU *u) noexcept = nullptr; \
+    union z_SubTaskU { \
+        subtask_decls; \
+        z_SubTaskU() noexcept {} \
+        ~z_SubTaskU() noexcept {} \
+    } _z_subtask_u; \
     int32_t _z_resume_point = 0
 
 // leaf task fields (`z_call` is not available)
@@ -176,7 +180,7 @@ inline void z_subtask_deinit(T *task) noexcept {
 #define z_call(taskname, result, args...) do { \
     using z_SubTask = std::remove_reference_t<decltype(this->_z_subtask_u.taskname)>; \
     new (&this->_z_subtask_u.taskname) z_SubTask(); \
-    this->_z_subtask_deinit = [] (z_SubTaskU *u) { u->taskname.~z_SubTask(); }; \
+    this->_z_subtask_deinit = [] (z_SubTaskU *u) noexcept { u->taskname.~z_SubTask(); }; \
 Z_LABEL: \
     if (!this->_z_subtask_u.taskname((result), z_current(), ##args)) { \
         this->_z_resume_point = z_label_addr; \

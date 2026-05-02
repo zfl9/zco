@@ -5,8 +5,10 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <assert.h>
 #include "z.hpp"
 #include "z_ev.hpp"
+#include "z_queue.hpp"
 
 struct tcp_echo final : z_Task {
     z_fields(z_ev_read read; z_ev_write write);
@@ -109,6 +111,14 @@ int main() {
     z_launch(tcp_server, 8888);
     z_launch(tcp_server, 8888); // fail-fast
     z_launch(tcp_server, 8889);
+
+    z_Queue<int> queue{8};
+    for (int i = 0; i < 10; ++i) {
+        bool ok = queue.push(i);
+        if (i < 8) assert(ok);
+        else assert(!ok);
+    }
+    assert(queue.count() == 8);
 
     z_ev::run();
 
