@@ -6,6 +6,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <assert.h>
+#include <time.h>
 #include "z.hpp"
 #include "z_ev.hpp"
 #include "z_queue.hpp"
@@ -43,7 +44,7 @@ struct tcp_echo final : z_Task {
             if (buf[len-1] == '\n') --len;
             if (len == 0) continue;
             printf("fd:%d msg:'%.*s'\n", io.fd, (int)len, buf);
-            z_call(write, nullptr, &io, &buf, len);
+            z_call(write, z_no_result(), &io, &buf, len);
         }
 
         z_ret();
@@ -106,6 +107,73 @@ struct tcp_server final : z_Task {
     }
 };
 
+struct producer final : z_Task {
+    z_fields(z_Queue<int>::push push; z_ev_sleep sleep);
+    ev_timer timer;
+    z_Queue<int> *queue;
+    int i = 0;
+    int count;
+    int interval;
+
+    z_impl_deinit(producer) {
+        printf("~producer()\n");
+        z_ev::timer_stop(&timer);
+    }
+
+    producer(z_Queue<int> *queue, int count, int interval) noexcept :
+        queue{queue}, count{count}, interval{interval}
+    {
+        ev_timer_init(&timer, nullptr, 0, 0);
+    }
+
+    z_function(void) {
+        z_begin();
+
+        for (i = 0; i < count; ++i) {
+            z_call(sleep, z_no_result(), &timer, interval);
+            printf("[%ld] push ... (%d)\n", time(nullptr), i);
+            z_call(push, z_no_result(), queue, i);
+            printf("[%ld] push end (%d)\n", time(nullptr), i);
+        }
+
+        z_ret();
+    }
+};
+
+struct consumer final : z_Task {
+    z_fields(z_Queue<int>::pop pop; z_ev_sleep sleep);
+    ev_timer timer;
+    z_Queue<int> *queue;
+    int i = 0;
+    int count;
+    int interval;
+
+    z_impl_deinit(consumer) {
+        printf("~consumer()\n");
+        z_ev::timer_stop(&timer);
+    }
+
+    consumer(z_Queue<int> *queue, int count, int interval) noexcept :
+        queue{queue}, count{count}, interval{interval}
+    {
+        ev_timer_init(&timer, nullptr, 0, 0);
+    }
+
+    z_function(void) {
+        z_begin();
+
+        for (i = 0; i < count; ++i) {
+            z_call(sleep, z_no_result(), &timer, interval);
+            printf("[%ld] pop ... (%d)\n", time(nullptr), i);
+            int data;
+            z_call(pop, z_no_result(), queue, &data);
+            printf("[%ld] pop end (%d): %d\n", time(nullptr), i, data);
+        }
+
+        z_ret();
+    }
+};
+
 int main() {
     z_ev::init();
 
@@ -113,10 +181,14 @@ int main() {
     z_launch(tcp_server, 8888); // fail-fast
     z_launch(tcp_server, 8889);
 
+    z_Queue<int> queue{1};
+    z_launch(producer, &queue, 5, 1);
+    z_launch(consumer, &queue, 5, 3);
+
     {
         z_Queue<int> queue{8};
         for (int i = 0; i < 10; ++i) {
-            bool ok = queue.push(i);
+            bool ok = queue.raw_push(i);
             if (i < 8) assert(ok);
             else assert(!ok);
         }
@@ -168,21 +240,6 @@ int main() {
             printf("item.id: %d\n", item->id);
         }
     }
-
-    // struct {
-    //     struct Iter {
-    //         int *next() noexcept {
-    //             return nullptr;
-    //         }
-    //     };
-    //     Iter iter() noexcept {
-    //         return Iter{};
-    //     }
-    // } list;
-
-    // for (auto it = list.iter(); auto p = it.next();) {
-    //     printf("item: %d\n", *p);
-    // }
 
     z_ev::run();
 

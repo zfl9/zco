@@ -6,20 +6,21 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-namespace z_ev {
-    inline ev_loop *evloop = nullptr;
+struct z_ev {
+    static inline ev_loop *evloop = nullptr;
 
-    inline void init() {
+    static void init() {
         evloop = ev_default_loop(0);
     }
 
-    inline void run() {
+    static void run() {
         ev_run(evloop);
     }
 
     using io_callback_t = void (*)(ev_loop *, ev_io *, int revents);
+    using timer_callback_t = void (*)(ev_loop *, ev_timer *, int revents);
 
-    inline void io_start(ev_io *io, int events, z_Task *task) {
+    static void io_start(ev_io *io, z_Task *task, int events) {
         io_callback_t callback = [] (ev_loop *, ev_io *io, int) {
             auto *task = static_cast<z_Task *>(io->data);
             task->resume();
@@ -34,10 +35,29 @@ namespace z_ev {
         ev_io_start(evloop, io);
     }
 
-    inline void io_stop(ev_io *io) {
+    static void io_stop(ev_io *io) {
         ev_io_stop(evloop, io);
     }
-}
+
+    static void timer_start(ev_timer *timer, z_Task *task, double after_sec, double repeat_sec = 0.0) {
+        timer_callback_t callback = [] (ev_loop *, ev_timer *timer, int) {
+            auto *task = static_cast<z_Task *>(timer->data);
+            task->resume();
+        };
+
+        ev_timer_stop(evloop, timer);
+
+        ev_timer_set(timer, after_sec, repeat_sec);
+        ev_set_cb(timer, callback);
+        timer->data = task;
+
+        ev_timer_start(evloop, timer);
+    }
+
+    static void timer_stop(ev_timer *timer) {
+        ev_timer_stop(evloop, timer);
+    }
+};
 
 struct z_ev_read {
     z_leaf_fields();
@@ -57,7 +77,7 @@ struct z_ev_read {
             } else if (res == 0) {
                 break;
             } else if (errno == EAGAIN) {
-                z_ev::io_start(io, EV_READ, z_current());
+                z_ev::io_start(io, z_current(), EV_READ);
                 z_yield(z_ev::io_stop(io));
             } else {
                 z_return(res);
@@ -82,7 +102,7 @@ struct z_ev_write {
             if (res >= 0) {
                 n_write += res;
             } else if (errno == EAGAIN) {
-                z_ev::io_start(io, EV_WRITE, z_current());
+                z_ev::io_start(io, z_current(), EV_WRITE);
                 z_yield(z_ev::io_stop(io));
             } else {
                 z_return(res);
@@ -106,7 +126,7 @@ struct z_ev_accept {
             if (cfd >= 0 || errno != EAGAIN) {
                 z_return(cfd);
             } else {
-                z_ev::io_start(io, EV_READ, z_current());
+                z_ev::io_start(io, z_current(), EV_READ);
                 z_yield(z_ev::io_stop(io));
             }
         }
@@ -124,7 +144,7 @@ struct z_ev_connect {
         int res; res = connect(io->fd, addr, addrlen);
         if (res == 0 || errno != EINPROGRESS) return res;
 
-        z_ev::io_start(io, EV_WRITE, z_current());
+        z_ev::io_start(io, z_current(), EV_WRITE);
         z_yield(z_ev::io_stop(io));
 
         // check errno
@@ -137,5 +157,20 @@ struct z_ev_connect {
             z_return(-1);
         }
         z_return(0);
+    }
+};
+
+struct z_ev_sleep {
+    z_leaf_fields();
+
+    z_def_deinit(z_ev_sleep) {}
+
+    z_function(void, ev_timer *timer, double sleep_sec) {
+        z_begin();
+
+        z_ev::timer_start(timer, z_current(), sleep_sec);
+        z_yield(z_ev::timer_stop(timer));
+
+        z_ret();
     }
 };

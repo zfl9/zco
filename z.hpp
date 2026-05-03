@@ -139,7 +139,10 @@ inline void z_subtask_deinit(T *task) noexcept {
 // task's coroutine function
 #define z_function(Result, param_decls...) bool operator()(Result *_z_result, z_Task *_z_task, ##param_decls) noexcept
 
-// currently running `z_Task *`
+// current z_function's `result *`
+#define z_result() (_z_result)
+
+// current running `z_Task *`
 #define z_current() (_z_task)
 
 #define Z_CONCAT_(a, b) a##b
@@ -174,11 +177,13 @@ inline void z_subtask_deinit(T *task) noexcept {
 } while (0)
 
 #define z_return(result, final_logic...) do { \
-    if (_z_result) *_z_result = std::move(result); \
+    if (z_result()) *z_result() = std::move(result); \
     z_ret(final_logic); \
 } while (0)
 
-// @param result: `Result *`, use nullptr to ignore
+#define z_no_result() nullptr
+
+// @param result: `Result *`, use `z_no_result()` to ignore
 // @param args: the arguments passed to z_function (pinned)
 #define z_call(taskname, result, args...) do { \
     using z_SubTask = std::remove_reference_t<decltype(this->_z_subtask_u.taskname)>; \

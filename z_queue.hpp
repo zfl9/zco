@@ -3,6 +3,7 @@
 #include <new>
 #include <type_traits>
 #include "z.hpp"
+#include "z_list.hpp"
 
 template <typename T>
 concept SmallTrivial = std::is_trivially_copyable_v<T> && (sizeof(T) <= 32);
@@ -10,6 +11,8 @@ concept SmallTrivial = std::is_trivially_copyable_v<T> && (sizeof(T) <= 32);
 template <SmallTrivial T>
 struct z_Queue {
 private:
+    z_List<z_Task, &z_Task::wait_node> _push_waiters{};
+    z_List<z_Task, &z_Task::wait_node> _pop_waiters{};
     T *_array = nullptr;
     size_t _head = 0;
     size_t _tail = 0;
@@ -25,6 +28,8 @@ public:
         {}
 
     ~z_Queue() noexcept {
+        assert(_push_waiters.is_empty());
+        assert(_pop_waiters.is_empty());
         clear(true);
     }
 
@@ -36,8 +41,38 @@ public:
     z_Queue &operator=(z_Queue &&) = delete;
     z_Queue &operator=(const z_Queue &) = delete;
 
+    struct push {
+        z_leaf_fields();
+
+        z_def_deinit(push) {}
+
+        z_function(void, z_Queue *queue, T item) {
+            z_begin();
+            while (!queue->raw_push(item)) {
+                queue->_push_waiters.push_tail(z_current());
+                z_yield();
+            }
+            z_ret();
+        }
+    };
+
+    struct pop {
+        z_leaf_fields();
+
+        z_def_deinit(pop) {}
+
+        z_function(void, z_Queue *queue, T *item) {
+            z_begin();
+            while (!queue->raw_pop(item)) {
+                queue->_pop_waiters.push_tail(z_current());
+                z_yield();
+            }
+            z_ret();
+        }
+    };
+
     // @return ok
-    bool push(T item) noexcept {
+    bool raw_push(T item) noexcept {
         if (!_array) {
             _array = new (std::nothrow) T[_capacity];
             if (!_array) [[unlikely]] return false;
@@ -46,15 +81,18 @@ public:
         _array[_tail] = item;
         _tail = (_tail + 1) & (_capacity - 1); 
         _count++;
+        if (z_Task *task = _pop_waiters.pop_head()) task->resume();
         return true;
     }
 
     // @return ok
-    bool pop(T *item) noexcept {
+    bool raw_pop(T *item) noexcept {
+        assert(item != nullptr);
         if (_count == 0) return false;
         *item = _array[_head];
         _head = (_head + 1) & (_capacity - 1);
         _count--;
+        if (z_Task *task = _push_waiters.pop_head()) task->resume();
         return true;
     }
 
@@ -97,6 +135,4 @@ public:
     void set_destroy_fn(DestroyFn destroy_fn) noexcept {
         _destroy_fn = destroy_fn;
     }
-
-    // todo: impl z_function for z_Queue::push/pop
 };
