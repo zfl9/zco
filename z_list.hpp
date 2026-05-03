@@ -6,7 +6,7 @@ struct z_Node {
     z_Node *next;
 
     z_Node() noexcept : prev{this}, next{this} {}
-    ~z_Node() noexcept = default;
+    ~z_Node() noexcept { unlink(false); };
 
     z_Node(z_Node &&) = delete;
     z_Node(const z_Node &) = delete;
