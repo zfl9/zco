@@ -3,9 +3,12 @@
 #include <type_traits>
 #include <utility>
 #include <new>
+#include "z_list.hpp"
 
 // task interface (stackless coroutine)
 struct z_Task {
+public:
+    z_Node wait_node{};
 private:
     // execution flow (ref), creator (ref)
     uint32_t ref_count = 2;
@@ -179,7 +182,7 @@ inline void z_subtask_deinit(T *task) noexcept {
 // @param args: the arguments passed to z_function (pinned)
 #define z_call(taskname, result, args...) do { \
     using z_SubTask = std::remove_reference_t<decltype(this->_z_subtask_u.taskname)>; \
-    new (&this->_z_subtask_u.taskname) z_SubTask(); \
+    new (&this->_z_subtask_u.taskname) z_SubTask{}; \
     this->_z_subtask_deinit = [] (z_SubTaskU *u) noexcept { u->taskname.~z_SubTask(); }; \
 Z_LABEL: \
     if (!this->_z_subtask_u.taskname((result), z_current(), ##args)) { \
@@ -193,7 +196,7 @@ Z_LABEL: \
 
 // the caller owns a reference (z_TaskRef)
 #define z_spawn(T, ctor_args...) ({ \
-    z_Task *__z_spawn_task = new (std::nothrow) T(ctor_args); \
+    z_Task *__z_spawn_task = new (std::nothrow) T{ctor_args}; \
     if (__z_spawn_task) [[likely]] \
         __z_spawn_task->resume(); \
     z_TaskRef{__z_spawn_task}; \

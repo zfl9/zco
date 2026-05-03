@@ -51,7 +51,7 @@ struct z_ev_read {
         if (at_least > len) at_least = len;
 
         while (n_read == 0 || n_read < at_least) {
-            ssize_t res = read(io->fd, (char *)buf + n_read, len - n_read);
+            ssize_t res; res = read(io->fd, (char *)buf + n_read, len - n_read);
             if (res > 0) {
                 n_read += res;
             } else if (res == 0) {
@@ -78,7 +78,7 @@ struct z_ev_write {
         z_begin();
 
         while (n_write < len) {
-            ssize_t res = write(io->fd, (char *)buf + n_write, len - n_write);
+            ssize_t res; res = write(io->fd, (char *)buf + n_write, len - n_write);
             if (res >= 0) {
                 n_write += res;
             } else if (errno == EAGAIN) {
@@ -102,7 +102,7 @@ struct z_ev_accept {
         z_begin();
 
         for (;;) {
-            int cfd = accept4(io->fd, addr, addrlen, flags);
+            int cfd; cfd = accept4(io->fd, addr, addrlen, flags);
             if (cfd >= 0 || errno != EAGAIN) {
                 z_return(cfd);
             } else {
@@ -121,7 +121,7 @@ struct z_ev_connect {
     z_function(int, ev_io *io, const struct sockaddr *addr, socklen_t addrlen) {
         z_begin();
 
-        int res = connect(io->fd, addr, addrlen);
+        int res; res = connect(io->fd, addr, addrlen);
         if (res == 0 || errno != EINPROGRESS) return res;
 
         z_ev::io_start(io, EV_WRITE, z_current());

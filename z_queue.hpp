@@ -5,7 +5,9 @@
 #include "z.hpp"
 
 template <typename T>
-requires std::is_trivially_copyable_v<T>
+concept SmallTrivial = std::is_trivially_copyable_v<T> && (sizeof(T) <= 32);
+
+template <SmallTrivial T>
 struct z_Queue {
 private:
     T *_array = nullptr;
@@ -13,7 +15,7 @@ private:
     size_t _tail = 0;
     size_t _count = 0;
     const size_t _capacity;
-    using DestroyFn = void (*)(T obj) noexcept;
+    using DestroyFn = void (*)(T item) noexcept;
     DestroyFn _destroy_fn;
 
 public:
@@ -35,28 +37,28 @@ public:
     z_Queue &operator=(const z_Queue &) = delete;
 
     // @return ok
-    bool push(T obj) noexcept {
+    bool push(T item) noexcept {
         if (!_array) {
             _array = new (std::nothrow) T[_capacity];
             if (!_array) [[unlikely]] return false;
         }
         if (_count >= _capacity) return false;
-        _array[_tail] = obj;
+        _array[_tail] = item;
         _tail = (_tail + 1) & (_capacity - 1); 
         _count++;
         return true;
     }
 
     // @return ok
-    bool pop(T *obj) noexcept {
+    bool pop(T *item) noexcept {
         if (_count == 0) return false;
-        *obj = _array[_head];
+        *item = _array[_head];
         _head = (_head + 1) & (_capacity - 1);
         _count--;
         return true;
     }
 
-    // peek first obj (or nullptr if empty)
+    // peek first item (or nullptr if empty)
     T *peek() const noexcept {
         return (_count > 0) ? &_array[_head] : nullptr;
     }
@@ -95,4 +97,6 @@ public:
     void set_destroy_fn(DestroyFn destroy_fn) noexcept {
         _destroy_fn = destroy_fn;
     }
+
+    // todo: impl z_function for z_Queue::push/pop
 };

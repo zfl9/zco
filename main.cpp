@@ -9,6 +9,7 @@
 #include "z.hpp"
 #include "z_ev.hpp"
 #include "z_queue.hpp"
+#include "z_list.hpp"
 
 struct tcp_echo final : z_Task {
     z_fields(z_ev_read read; z_ev_write write);
@@ -112,13 +113,76 @@ int main() {
     z_launch(tcp_server, 8888); // fail-fast
     z_launch(tcp_server, 8889);
 
-    z_Queue<int> queue{8};
-    for (int i = 0; i < 10; ++i) {
-        bool ok = queue.push(i);
-        if (i < 8) assert(ok);
-        else assert(!ok);
+    {
+        z_Queue<int> queue{8};
+        for (int i = 0; i < 10; ++i) {
+            bool ok = queue.push(i);
+            if (i < 8) assert(ok);
+            else assert(!ok);
+        }
+        assert(queue.count() == 8);
     }
-    assert(queue.count() == 8);
+
+    {
+        struct Item {
+            z_Node node{};
+            int id;
+        };
+
+        z_List<Item, &Item::node> list{};
+
+        Item a{.id = 1}, b{.id = 2}, c{.id = 3};
+
+        list.push_tail(&a);
+        list.push_tail(&b);
+        list.push_tail(&c);
+
+        printf("items()\n");
+        for (auto item : list.items()) {
+            printf("item.id: %d\n", item->id);
+        }
+        printf("rev_items()\n");
+        for (auto item : list.rev_items()) {
+            printf("item.id: %d\n", item->id);
+        }
+
+        list.clear();
+        printf("items()\n");
+        for (auto item : list.items()) {
+            printf("item.id: %d\n", item->id);
+        }
+        printf("rev_items()\n");
+        for (auto item : list.rev_items()) {
+            printf("item.id: %d\n", item->id);
+        }
+
+        list.push_head(&a);
+        list.push_head(&b);
+        list.push_head(&c);
+        printf("items()\n");
+        for (auto item : list.items()) {
+            printf("item.id: %d\n", item->id);
+        }
+        printf("rev_items()\n");
+        for (auto item : list.rev_items()) {
+            printf("item.id: %d\n", item->id);
+        }
+    }
+
+    // struct {
+    //     struct Iter {
+    //         int *next() noexcept {
+    //             return nullptr;
+    //         }
+    //     };
+    //     Iter iter() noexcept {
+    //         return Iter{};
+    //     }
+    // } list;
+
+    // for (auto it = list.iter(); auto p = it.next();) {
+    //     printf("item: %d\n", *p);
+    // }
 
     z_ev::run();
 
