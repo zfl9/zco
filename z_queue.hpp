@@ -50,7 +50,7 @@ public:
             z_begin();
             while (!queue->raw_push(item)) {
                 queue->_push_waiters.push_tail(z_current());
-                z_yield();
+                z_yield(z_current()->wait_node.unlink());
             }
             z_ret();
         }
@@ -65,11 +65,27 @@ public:
             z_begin();
             while (!queue->raw_pop(item)) {
                 queue->_pop_waiters.push_tail(z_current());
-                z_yield();
+                z_yield(z_current()->wait_node.unlink());
             }
             z_ret();
         }
     };
+
+    // on data available
+    void on_push() noexcept {
+        while (z_Task *waiter = _pop_waiters.first()) {
+            if (is_empty()) break;
+            waiter->resume();
+        }
+    }
+
+    // on space available
+    void on_pop() noexcept {
+        while (z_Task *waiter = _push_waiters.first()) {
+            if (is_full()) break;
+            waiter->resume();
+        }
+    }
 
     // @return ok
     bool raw_push(T item) noexcept {
@@ -81,7 +97,7 @@ public:
         _array[_tail] = item;
         _tail = (_tail + 1) & (_capacity - 1); 
         _count++;
-        if (z_Task *task = _pop_waiters.pop_head()) task->resume();
+        on_push();
         return true;
     }
 
@@ -92,7 +108,7 @@ public:
         *item = _array[_head];
         _head = (_head + 1) & (_capacity - 1);
         _count--;
-        if (z_Task *task = _push_waiters.pop_head()) task->resume();
+        on_pop();
         return true;
     }
 
